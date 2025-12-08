@@ -194,7 +194,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Net Load (MW)' },
+            yaxis: { title: { text: 'MW' }, automargin: true },
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             hovermode: 'x unified' as const,
           },
@@ -245,7 +245,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Net Load (MW)' },
+            yaxis: { title: { text: 'MW' }, automargin: true },
             annotations: [{
               x: minLoadTime.getTime(),
               y: minLoad,
@@ -386,7 +386,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Net Load (MW)' },
+            yaxis: { title: { text: 'MW' }, automargin: true },
             annotations,
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             hovermode: 'x unified' as const,
@@ -434,7 +434,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Net Load (MW)' },
+            yaxis: { title: { text: 'MW' }, automargin: true },
             annotations: [{
               x: minLoadTime.getTime(),
               y: minLoad,
@@ -516,7 +516,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Power (MW)', range: [0, Math.max(...realTimeCapacity) * 1.1] },
+            yaxis: { title: { text: 'MW' }, automargin: true, range: [0, Math.max(...realTimeCapacity) * 1.1] },
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             hovermode: 'x unified' as const,
           },
@@ -583,7 +583,7 @@ function App() {
               title: '',
               range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
             },
-            yaxis: { title: 'Power (MW)', range: [0, Math.max(...realTimeCapacity) * 1.1] },
+            yaxis: { title: { text: 'MW' }, automargin: true, range: [0, Math.max(...realTimeCapacity) * 1.1] },
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             hovermode: 'x unified' as const,
           },
@@ -654,7 +654,7 @@ function App() {
           layout: {
             title: 'Annual Energy Production Comparison',
             xaxis: { title: 'Solar size' },
-            yaxis: { title: 'Annual energy (GWh)' },
+            yaxis: { title: { text: 'Annual energy (GWh)' }, automargin: true, },
             barmode: 'stack' as const,
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             annotations: pctCurt.map((pct, idx) => ({
@@ -683,8 +683,17 @@ function App() {
 
   const plotConfig = generatePlot(activeSection);
 
+  const handleWheel = (e: React.WheelEvent) => {
+    if (textContainerRef.current) {
+      textContainerRef.current.scrollTop += e.deltaY;
+    }
+  };
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+    <div
+      className="flex h-screen w-screen overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100"
+      onWheel={handleWheel}
+    >
       {/* Left side: Fixed Plotly chart */}
       <div className="w-1/2 h-full flex items-center justify-center p-8 bg-white border-r border-gray-200">
         <div className="w-full max-w-3xl aspect-[4/3]">
@@ -693,7 +702,7 @@ function App() {
             layout={{
               ...plotConfig.layout,
               autosize: true,
-              margin: { l: 60, r: 40, t: 60, b: 60 },
+              margin: { l: 80, r: 40, t: 60, b: 60 },
               plot_bgcolor: '#ffffff',
               paper_bgcolor: '#ffffff',
               font: {
@@ -731,7 +740,7 @@ function App() {
           <div
             ref={(el) => (sectionRefs.current[0] = el)}
             data-section="0"
-            className="min-h-screen flex flex-col justify-center mb-32"
+            className="min-h-screen flex flex-col justify-center mb-32 relative"
           >
             <h1 className="text-5xl font-bold mb-6 text-gray-900">
               Flexible Interconnection
@@ -747,6 +756,22 @@ function App() {
             <p className="text-lg text-gray-500 italic">
               *Note: net load data are for an actual Eversource substation in western Massachusetts.
             </p>
+
+            {/* Scroll to continue indicator */}
+            <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
+              <span className="text-sm text-gray-400">Scroll to continue</span>
+              <svg
+                className="w-8 h-8 text-gray-400"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+              </svg>
+            </div>
           </div>
 
           {/* Section 2 */}
