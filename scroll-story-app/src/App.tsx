@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Plot from 'react-plotly.js';
 import Papa from 'papaparse';
 
@@ -12,12 +12,19 @@ interface SolarData {
   ac_kw_per_kwdc: number;
 }
 
+interface MonthlyData {
+  month: number;
+  productionMWh: number;
+  curtailmentMWh: number;
+}
+
 function App() {
   const [activeSection, setActiveSection] = useState(0);
   const [loadData, setLoadData] = useState<LoadData[]>([]);
   const [solarData, setSolarData] = useState<SolarData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const textContainerRef = useRef<HTMLDivElement>(null);
+  const [solarSizeMW, setSolarSizeMW] = useState(15);
+  const [planningLimitMW, setPlanningLimitMW] = useState(10);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   // Load CSV data
@@ -78,7 +85,7 @@ function App() {
         });
       },
       {
-        root: textContainerRef.current,
+        root: null, // Use viewport as root
         threshold: 0.5,
       }
     );
@@ -98,11 +105,6 @@ function App() {
     end.setHours(23, 59, 59);
 
     return data.filter(d => d.timestamp >= start && d.timestamp <= end);
-  };
-
-  const getMinLoadIndex = (data: LoadData[]) => {
-    return data.reduce((minIdx, curr, idx, arr) =>
-      curr.net_load_mw < arr[minIdx].net_load_mw ? idx : minIdx, 0);
   };
 
   function buildReverseFlowSeries(
@@ -143,6 +145,168 @@ function App() {
 
     return { x: xOut, y: yOut };
   }
+
+  // Calculate monthly production and curtailment statistics
+  const calculateMonthlyStats = (solarSize: number, thermalLimit: number): MonthlyData[] => {
+    const monthlyData: MonthlyData[] = [];
+
+    for (let month = 0; month < 12; month++) {
+      let production = 0;
+      let curtailment = 0;
+
+      solarData.forEach(s => {
+        if (s.timestamp.getMonth() === month) {
+          const outputRaw = s.ac_kw_per_kwdc * solarSize;
+
+          const matchingLoad = loadData.find(l =>
+            Math.abs(l.timestamp.getTime() - s.timestamp.getTime()) < 3600000
+          );
+
+          if (matchingLoad) {
+            const capacity = matchingLoad.net_load_mw - thermalLimit;
+            const outputFI = Math.min(outputRaw, capacity);
+            production += outputFI;
+            curtailment += outputRaw - outputFI;
+          }
+        }
+      });
+
+      monthlyData.push({
+        month,
+        productionMWh: production,  // Already in MWh since solarSize is in MW
+        curtailmentMWh: curtailment,
+      });
+    }
+
+    return monthlyData;
+  };
+
+  // Calculate annual curtailment percentage
+  const calculateAnnualCurtailmentPct = (monthlyData: MonthlyData[]): number => {
+    const totalProduction = monthlyData.reduce((sum, m) => sum + m.productionMWh, 0);
+    const totalCurtailment = monthlyData.reduce((sum, m) => sum + m.curtailmentMWh, 0);
+
+    return totalCurtailment > 0
+      ? (100 * totalCurtailment / (totalProduction + totalCurtailment))
+      : 0;
+  };
+
+  // Generate multi-day interactive plot
+  const generateMultiDayPlot = (solarSize: number, thermalLimit: number) => {
+    const tenDayData = filterDataByDate(loadData, '2023-05-16', '2023-05-20');
+    const timestamps = tenDayData.map(d => d.timestamp);
+    const realTimeCapacity = tenDayData.map(d => d.net_load_mw - thermalLimit);
+
+    const solarForPeriod = solarData.filter(s => {
+      const t = s.timestamp.getTime();
+      return t >= timestamps[0].getTime() && t <= timestamps[timestamps.length - 1].getTime();
+    });
+
+    const solarOutputRaw = solarForPeriod.map(s => s.ac_kw_per_kwdc * solarSize);
+    const solarOutputFI = solarOutputRaw.map((output, idx) => {
+      const closestCapIdx = timestamps.findIndex(t =>
+        Math.abs(t.getTime() - solarForPeriod[idx].timestamp.getTime()) < 3600000
+      );
+      if (closestCapIdx >= 0) {
+        return Math.min(output, realTimeCapacity[closestCapIdx]);
+      }
+      return output;
+    });
+
+    return {
+      data: [
+        {
+          x: solarForPeriod.map(s => s.timestamp),
+          y: solarOutputFI,
+          type: 'scatter' as const,
+          mode: 'lines' as const,
+          name: 'Solar output',
+          line: { color: '#f59e0b', width: 3 },
+        },
+        {
+          x: solarForPeriod.map(s => s.timestamp),
+          y: solarOutputRaw,
+          type: 'scatter' as const,
+          mode: 'lines' as const,
+          name: 'Curtailed',
+          fill: 'tonexty',
+          fillcolor: 'rgba(255, 232, 100, 0.4)',
+          line: { color: '#f59e0b', width: 3, dash: 'dot' },
+        },
+        {
+          x: timestamps,
+          y: realTimeCapacity,
+          type: 'scatter' as const,
+          mode: 'lines' as const,
+          name: 'Real-time<br>hosting capacity',
+          line: { color: '#3b82f6', width: 3 },
+        },
+      ],
+      layout: {
+        title: 'Multi-Day View',
+        xaxis: {
+          title: '',
+          range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
+        },
+        yaxis: { title: { text: 'MW' }, automargin: true },
+        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
+        hovermode: 'x unified' as const,
+      },
+    };
+  };
+
+  // Generate monthly bar chart
+  const generateMonthlyBarChart = (solarSize: number, thermalLimit: number) => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthlyData = calculateMonthlyStats(solarSize, thermalLimit);
+    const annualCurtPct = calculateAnnualCurtailmentPct(monthlyData);
+
+    const totalProduction = monthlyData.reduce((sum, m) => sum + m.productionMWh, 0);
+    const totalProductionGWh = totalProduction / 1000;
+
+    return {
+      data: [
+        {
+          x: monthNames,
+          y: monthlyData.map(m => m.productionMWh),
+          type: 'bar' as const,
+          name: 'Production',
+          marker: { color: '#10b981' },
+        },
+        {
+          x: monthNames,
+          y: monthlyData.map(m => m.curtailmentMWh),
+          type: 'bar' as const,
+          name: 'Curtailment',
+          marker: { color: '#fbbf24' },
+        },
+      ],
+      layout: {
+        title: 'Monthly Production & Curtailment',
+        xaxis: { title: 'Month' },
+        yaxis: { title: { text: 'MWh' }, automargin: true },
+        barmode: 'stack' as const,
+        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
+        annotations: [
+          {
+            text: `<b>Annual Production:</b> ${totalProductionGWh.toFixed(1)} GWh<br><b>Curtailment:</b> ${annualCurtPct.toFixed(1)}%`,
+            xref: 'paper',
+            yref: 'paper',
+            x: 0.98,
+            y: 0.98,
+            xanchor: 'right',
+            yanchor: 'top',
+            showarrow: false,
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            bordercolor: '#e5e7eb',
+            borderwidth: 1,
+            borderpad: 8,
+            font: { size: 16 },
+          },
+        ],
+      },
+    };
+  };
 
   // Generate plots based on active section
   const generatePlot = (section: number) => {
@@ -494,20 +658,20 @@ function App() {
         return {
           data: [
             {
-              x: solarForPeriod.map(s => s.timestamp),
-              y: staticSolarOutput,
-              type: 'scatter' as const,
-              mode: 'lines' as const,
-              name: 'Solar output (static limit)',
-              line: { color: '#f59e0b', width: 3 },
-            },
-            {
               x: timestamps,
               y: realTimeCapacity,
               type: 'scatter' as const,
               mode: 'lines' as const,
               name: 'Real-time hosting capacity',
               line: { color: '#3b82f6', width: 3 },
+            },
+            {
+              x: solarForPeriod.map(s => s.timestamp),
+              y: staticSolarOutput,
+              type: 'scatter' as const,
+              mode: 'lines' as const,
+              name: 'Solar output (static limit)',
+              line: { color: '#f59e0b', width: 3 },
             },
           ],
           layout: {
@@ -563,7 +727,7 @@ function App() {
               y: solarOutputRaw,
               type: 'scatter' as const,
               mode: 'lines' as const,
-              name: 'Curtailed output',
+              name: 'Curtailed',
               fill: 'tonexty',
               fillcolor: 'rgba(255, 232, 100, 0.4)',
               line: { color: '#f59e0b', width: 3, dash: 'dot' },
@@ -573,7 +737,7 @@ function App() {
               y: realTimeCapacity,
               type: 'scatter' as const,
               mode: 'lines' as const,
-              name: 'Real-time hosting capacity',
+              name: 'Real-time<br>hosting capacity',
               line: { color: '#3b82f6', width: 3 },
             },
           ],
@@ -683,176 +847,328 @@ function App() {
 
   const plotConfig = generatePlot(activeSection);
 
-  const handleWheel = (e: React.WheelEvent) => {
-    if (textContainerRef.current) {
-      textContainerRef.current.scrollTop += e.deltaY;
+  // Memoized interactive plots
+  const multiDayPlotConfig = useMemo(() => {
+    if (isLoading || loadData.length === 0 || solarData.length === 0) {
+      return { data: [], layout: { title: 'Loading...' } };
     }
-  };
+    return generateMultiDayPlot(solarSizeMW, -planningLimitMW);
+  }, [solarSizeMW, planningLimitMW, loadData, solarData, isLoading]);
+
+  const monthlyPlotConfig = useMemo(() => {
+    if (isLoading || loadData.length === 0 || solarData.length === 0) {
+      return { data: [], layout: { title: 'Loading...' } };
+    }
+    return generateMonthlyBarChart(solarSizeMW, -planningLimitMW);
+  }, [solarSizeMW, planningLimitMW, loadData, solarData, isLoading]);
 
   return (
-    <div
-      className="flex h-screen w-screen overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100"
-      onWheel={handleWheel}
-    >
-      {/* Left side: Fixed Plotly chart */}
-      <div className="w-1/2 h-full flex items-center justify-center p-8 bg-white border-r border-gray-200">
-        <div className="w-full max-w-3xl aspect-[4/3]">
-          <Plot
-            data={plotConfig.data}
-            layout={{
-              ...plotConfig.layout,
-              autosize: true,
-              margin: { l: 80, r: 40, t: 60, b: 60 },
-              plot_bgcolor: '#ffffff',
-              paper_bgcolor: '#ffffff',
-              font: {
-                family: 'system-ui, -apple-system, sans-serif',
-                color: '#374151',
-                size: 24,
-              },
-              transition: {
+    <div className="w-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Two-column section */}
+      <div className="flex w-screen">
+        {/* Left side: Fixed Plotly chart */}
+        <div className="w-1/2 h-screen flex items-center justify-center p-8 bg-white border-r border-gray-200 sticky top-0">
+          <div className="w-full max-w-3xl aspect-[4/3]">
+            <Plot
+              data={plotConfig.data}
+              layout={{
+                ...plotConfig.layout,
+                autosize: true,
+                margin: { l: 80, r: 40, t: 60, b: 60 },
+                plot_bgcolor: '#ffffff',
+                paper_bgcolor: '#ffffff',
+                font: {
+                  family: 'system-ui, -apple-system, sans-serif',
+                  color: '#374151',
+                  size: 24,
+                },
+                transition: {
+                  duration: 600,
+                  easing: 'cubic-in-out',
+                },
+              }}
+              config={{
+                displayModeBar: false,
+                responsive: true,
+              }}
+              style={{ width: '100%', height: '100%' }}
+              useResizeHandler={true}
+              transition={{
                 duration: 600,
                 easing: 'cubic-in-out',
-              },
-            }}
-            config={{
-              displayModeBar: false,
-              responsive: true,
-            }}
-            style={{ width: '100%', height: '100%' }}
-            useResizeHandler={true}
-            transition={{
-              duration: 600,
-              easing: 'cubic-in-out',
-            }}
-            frames={[]}
-          />
+              }}
+              frames={[]}
+            />
+          </div>
+        </div>
+
+        {/* Right side: Scrollable text */}
+        <div className="w-1/2 bg-gradient-to-b from-white to-gray-50">
+          <div className="max-w-2xl mx-auto px-12 py-16">
+            {/* Section 1 */}
+            <div
+              ref={(el) => { sectionRefs.current[0] = el; }}
+              data-section="0"
+              className="min-h-screen flex flex-col justify-center mb-32 relative"
+            >
+              {/* <h1 className="text-5xl font-bold mb-6 text-gray-900">
+                  Flexible Interconnection
+                </h1> */}
+              <h2 className="text-3xl font-semibold mb-8 text-gray-900">
+                Getting more out of our grid with flexible interconnection
+              </h2>
+              <p className="text-3xl text-gray-700 leading-relaxed mb-4">
+                Traditionally, the grid is built for the highest load hour of each year.
+                As we add solar, we start seeing <span className="text-pink-500 font-semibold">reverse power flow</span> when
+                solar produces more electricity than can be consumed locally.
+              </p>
+              <p className="text-lg text-gray-500 italic mb-4">
+                *Note: net load data are for an actual Eversource substation in western Massachusetts.
+              </p>
+
+              <p className="text-lg text-gray-500 italic">
+                Analysis by{' '}
+                <a
+                  href="https://dawzylla.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline"
+                >
+                  Charles Dawson
+                </a>
+              </p>
+
+              {/* Scroll to continue indicator */}
+              <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
+                <span className="text-sm text-gray-400">Scroll to continue</span>
+                <svg
+                  className="w-8 h-8 text-gray-400"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                </svg>
+              </div>
+            </div>
+
+            {/* Section 2 */}
+            <div
+              ref={(el) => { sectionRefs.current[1] = el; }}
+              data-section="1"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed mb-4">
+                As <span className="text-pink-500 font-semibold">reverse power flow</span> approaches
+                the <span className="text-red-600 font-semibold">thermal limit</span> of the local grid,
+                this limits the <span className="text-blue-600 font-semibold">hosting capacity</span> of
+                the circuit (i.e. the ability of the grid to accomodate new solar).
+              </p>
+              <p className="text-lg text-gray-500 italic mt-4">
+                This plot shows a 10 MW thermal limit for illustration; the actual limit of this substation is higher.
+              </p>
+            </div>
+
+            {/* Section 3 */}
+            <div
+              ref={(el) => { sectionRefs.current[2] = el; }}
+              data-section="2"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                However, <span className="text-blue-600 font-semibold">hosting capacity</span> is not static;
+                it varies from day to day based on weather, load, and other grid conditions.
+              </p>
+            </div>
+
+            {/* Section 4 */}
+            <div
+              ref={(el) => { sectionRefs.current[3] = el; }}
+              data-section="3"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                Traditional interconnection sets limits based on the worst hour of the year,
+                requiring expensive grid upgrades to accomodate more solar.
+              </p>
+            </div>
+
+            {/* Section 5 */}
+            <div
+              ref={(el) => { sectionRefs.current[4] = el; }}
+              data-section="4"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                Even though most days don't come close to the limit, the
+                worst-case scenario limits the amount of solar that can be installed.
+              </p>
+            </div>
+
+            {/* Section 6 */}
+            <div
+              ref={(el) => { sectionRefs.current[5] = el; }}
+              data-section="5"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
+                rather than the static limit. When the grid is congested, solar output
+                &nbsp;<span className="bg-orange-100 text-orange-800 px-1">curtails</span>&nbsp;
+                (i.e. turns down).
+              </p>
+            </div>
+
+            {/* Section 7 */}
+            <div
+              ref={(el) => { sectionRefs.current[6] = el; }}
+              data-section="6"
+              className="min-h-screen flex flex-col justify-center mb-32 relative"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                Over the course of the year, flexible interconnection allows solar to generate
+                much more electricity without overloading the grid, and only a small fraction ends up curtailed.
+              </p>
+
+              {/* Try it yourself indicator */}
+              <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
+                <span className="text-sm text-gray-400">Try it for yourself!</span>
+                <svg
+                  className="w-8 h-8 text-gray-400"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
+                </svg>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Right side: Scrollable text */}
-      <div
-        ref={textContainerRef}
-        className="w-1/2 h-full overflow-y-scroll bg-gradient-to-b from-white to-gray-50"
-      >
-        <div className="max-w-2xl mx-auto px-12 py-16">
-          {/* Section 1 */}
-          <div
-            ref={(el) => (sectionRefs.current[0] = el)}
-            data-section="0"
-            className="min-h-screen flex flex-col justify-center mb-32 relative"
-          >
-            <h1 className="text-5xl font-bold mb-6 text-gray-900">
-              Flexible Interconnection
-            </h1>
-            <h2 className="text-3xl font-semibold mb-8 text-gray-700">
-              i.e. getting more out of our grid
-            </h2>
-            <p className="text-3xl text-gray-700 leading-relaxed mb-4">
-              Traditionally, the grid is built for the highest load hour of each year.
-              As we add solar, we start seeing <span className="text-pink-500 font-semibold">reverse power flow</span> when
-              solar produces more electricity than can be consumed locally.
-            </p>
-            <p className="text-lg text-gray-500 italic">
-              *Note: net load data are for an actual Eversource substation in western Massachusetts.
-            </p>
+      {/* Full-width interactive section */}
+      <div className="w-full h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
+        {/* Controls area */}
+        <div className="p-8 bg-white border-b border-gray-200">
+          <h2 className="text-4xl font-bold mb-6 text-gray-900">
+            Flexible interconnection in action
+          </h2>
 
-            {/* Scroll to continue indicator */}
-            <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 flex items-center gap-2">
-              <span className="text-sm text-gray-400">Scroll to continue</span>
-              <svg
-                className="w-8 h-8 text-gray-400"
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path d="M19 14l-7 7m0 0l-7-7m7 7V3"></path>
-              </svg>
+          <div className="max-w-4xl mx-auto grid grid-cols-2 gap-8">
+            {/* Solar Size Slider */}
+            <div>
+              <div className="flex justify-between mb-2">
+                <label className="text-lg font-semibold text-gray-700">Solar Plant Size</label>
+                <span className="text-lg text-gray-600">{solarSizeMW.toFixed(1)} MW</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={30}
+                step={0.5}
+                value={solarSizeMW}
+                onChange={(e) => setSolarSizeMW(parseFloat(e.target.value))}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+
+            {/* Planning Limit Slider */}
+            <div>
+              <div className="flex justify-between mb-2">
+                <label className="text-lg font-semibold text-gray-700">Planning Limit (Thermal)</label>
+                <span className="text-lg text-gray-600">{planningLimitMW.toFixed(1)} MW</span>
+              </div>
+              <input
+                type="range"
+                min={5}
+                max={20}
+                step={0.5}
+                value={planningLimitMW}
+                onChange={(e) => setPlanningLimitMW(parseFloat(e.target.value))}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Plots area */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Multi-day plot */}
+          <div className="w-1/2 p-6 flex items-center justify-center">
+            <div className="w-full h-full">
+              <Plot
+                data={multiDayPlotConfig.data}
+                layout={{
+                  ...multiDayPlotConfig.layout,
+                  autosize: true,
+                  margin: { l: 80, r: 40, t: 60, b: 60 },
+                  plot_bgcolor: '#ffffff',
+                  paper_bgcolor: '#ffffff',
+                  font: {
+                    family: 'system-ui, -apple-system, sans-serif',
+                    color: '#374151',
+                    size: 20,
+                  },
+                }}
+                config={{
+                  displayModeBar: false,
+                  responsive: true,
+                }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler={true}
+              />
             </div>
           </div>
 
-          {/* Section 2 */}
-          <div
-            ref={(el) => (sectionRefs.current[1] = el)}
-            data-section="1"
-            className="min-h-screen flex flex-col justify-center mb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed mb-4">
-              As <span className="text-pink-500 font-semibold">reverse power flow</span> approaches
-              the <span className="text-red-600 font-semibold">thermal limit</span> of the local grid,
-              this limits the <span className="text-blue-600 font-semibold">hosting capacity</span> of
-              the circuit (i.e. the ability of the grid to accomodate new solar).
-            </p>
-            <p className="text-lg text-gray-500 italic mt-4">
-              This plot shows a 10 MW thermal limit for illustration; the actual limit of this substation is higher.
-            </p>
-          </div>
-
-          {/* Section 3 */}
-          <div
-            ref={(el) => (sectionRefs.current[2] = el)}
-            data-section="2"
-            className="min-h-screen flex flex-col justify-center mb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed">
-              However, <span className="text-blue-600 font-semibold">hosting capacity</span> is not static;
-              it varies from day to day based on weather, load, and other grid conditions.
-            </p>
-          </div>
-
-          {/* Section 4 */}
-          <div
-            ref={(el) => (sectionRefs.current[3] = el)}
-            data-section="3"
-            className="min-h-screen flex flex-col justify-center mb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed">
-              Traditional interconnection sets limits based on the worst hour of the year,
-              requiring expensive grid upgrades to accomodate more solar.
-            </p>
-          </div>
-
-          {/* Section 5 */}
-          <div
-            ref={(el) => (sectionRefs.current[4] = el)}
-            data-section="4"
-            className="min-h-screen flex flex-col justify-center mb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed">
-              Even though most days don't come close to the limit, the
-              worst-case scenario limits the amount of solar that can be installed.
-            </p>
-          </div>
-
-          {/* Section 6 */}
-          <div
-            ref={(el) => (sectionRefs.current[5] = el)}
-            data-section="5"
-            className="min-h-screen flex flex-col justify-center mb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed">
-              <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
-              rather than the static limit. When the grid is congested, solar output
-              &nbsp;<span className="bg-blue-100 text-blue-800 px-1">curtails</span>&nbsp;
-              (i.e. turns down).
-            </p>
-          </div>
-
-          {/* Section 7 */}
-          <div
-            ref={(el) => (sectionRefs.current[6] = el)}
-            data-section="6"
-            className="min-h-screen flex flex-col justify-center pb-32"
-          >
-            <p className="text-3xl text-gray-700 leading-relaxed">
-              Over the course of the year, flexible interconnection allows solar to generate
-              much more electricity without overloading the grid, and only a small fraction ends up curtailed.
-            </p>
+          {/* Monthly bar chart */}
+          <div className="w-1/2 p-6 flex items-center justify-center border-l border-gray-200">
+            <div className="w-full h-full">
+              <Plot
+                data={monthlyPlotConfig.data}
+                layout={{
+                  ...monthlyPlotConfig.layout,
+                  autosize: true,
+                  margin: { l: 80, r: 40, t: 60, b: 60 },
+                  plot_bgcolor: '#ffffff',
+                  paper_bgcolor: '#ffffff',
+                  font: {
+                    family: 'system-ui, -apple-system, sans-serif',
+                    color: '#374151',
+                    size: 20,
+                  },
+                }}
+                config={{
+                  displayModeBar: false,
+                  responsive: true,
+                }}
+                style={{ width: '100%', height: '100%' }}
+                useResizeHandler={true}
+              />
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* Footer */}
+      <div className="w-full py-6 bg-gray-800 text-center">
+        <p className="text-gray-300">
+          Created by{' '}
+          <a
+            href="https://dawzylla.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 underline"
+          >
+            Charles Dawson
+          </a>
+        </p>
       </div>
     </div>
   );
