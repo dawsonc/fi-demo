@@ -624,7 +624,7 @@ function App() {
         });
 
         const labels = [
-          `${sizes[0].toFixed(1)} MW\n(static hosting capacity)`,
+          `${sizes[0].toFixed(1)} MW`,
           `${sizes[1].toFixed(1)} MW`,
           `${sizes[2].toFixed(1)} MW`,
         ];
@@ -640,7 +640,7 @@ function App() {
               x: labels,
               y: annualMWh,
               type: 'bar' as const,
-              name: 'Annual energy',
+              name: 'Annual generation',
               marker: { color: '#10b981' },
             },
             {
@@ -702,7 +702,7 @@ function App() {
                 size: 24,
               },
               transition: {
-                duration: 800,
+                duration: 600,
                 easing: 'cubic-in-out',
               },
             }}
@@ -713,7 +713,7 @@ function App() {
             style={{ width: '100%', height: '100%' }}
             useResizeHandler={true}
             transition={{
-              duration: 800,
+              duration: 600,
               easing: 'cubic-in-out',
             }}
             frames={[]}
@@ -739,12 +739,12 @@ function App() {
             <h2 className="text-3xl font-semibold mb-8 text-gray-700">
               i.e. getting more out of our grid
             </h2>
-            <p className="text-xl text-gray-700 leading-relaxed mb-4">
+            <p className="text-3xl text-gray-700 leading-relaxed mb-4">
               Traditionally, the grid is built for the highest load hour of each year.
               As we add solar, we start seeing <span className="text-pink-500 font-semibold">reverse power flow</span> when
               solar produces more electricity than can be consumed locally.
             </p>
-            <p className="text-sm text-gray-500 italic">
+            <p className="text-lg text-gray-500 italic">
               *Note: net load data are for an actual Eversource substation in western Massachusetts.
             </p>
           </div>
@@ -755,7 +755,7 @@ function App() {
             data-section="1"
             className="min-h-screen flex flex-col justify-center mb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed mb-4">
+            <p className="text-3xl text-gray-700 leading-relaxed mb-4">
               As <span className="text-pink-500 font-semibold">reverse power flow</span> approaches
               the <span className="text-red-600 font-semibold">thermal limit</span> of the local grid,
               this limits the <span className="text-blue-600 font-semibold">hosting capacity</span> of
@@ -772,7 +772,7 @@ function App() {
             data-section="2"
             className="min-h-screen flex flex-col justify-center mb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed">
+            <p className="text-3xl text-gray-700 leading-relaxed">
               However, <span className="text-blue-600 font-semibold">hosting capacity</span> is not static;
               it varies from day to day based on weather, load, and other grid conditions.
             </p>
@@ -784,9 +784,9 @@ function App() {
             data-section="3"
             className="min-h-screen flex flex-col justify-center mb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed">
-              Traditional interconnection limits solar based on the worst hour of the year,
-              requiring expensive grid upgrades to build more.
+            <p className="text-3xl text-gray-700 leading-relaxed">
+              Traditional interconnection sets limits based on the worst hour of the year,
+              requiring expensive grid upgrades to accomodate more solar.
             </p>
           </div>
 
@@ -796,7 +796,7 @@ function App() {
             data-section="4"
             className="min-h-screen flex flex-col justify-center mb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed">
+            <p className="text-3xl text-gray-700 leading-relaxed">
               Even though most days don't come close to the limit, the
               worst-case scenario limits the amount of solar that can be installed.
             </p>
@@ -808,7 +808,7 @@ function App() {
             data-section="5"
             className="min-h-screen flex flex-col justify-center mb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed">
+            <p className="text-3xl text-gray-700 leading-relaxed">
               <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
               rather than the static limit. When the grid is congested, solar output
               &nbsp;<span className="bg-blue-100 text-blue-800 px-1">curtails</span>&nbsp;
@@ -822,7 +822,7 @@ function App() {
             data-section="6"
             className="min-h-screen flex flex-col justify-center pb-32"
           >
-            <p className="text-xl text-gray-700 leading-relaxed">
+            <p className="text-3xl text-gray-700 leading-relaxed">
               Over the course of the year, flexible interconnection allows solar to generate
               much more electricity without overloading the grid, and only a small fraction ends up curtailed.
             </p>
