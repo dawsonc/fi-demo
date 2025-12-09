@@ -268,17 +268,17 @@ function App() {
       data: [
         {
           x: monthNames,
-          y: monthlyData.map(m => m.productionMWh),
+          y: monthlyData.map(m => m.productionMWh + m.curtailmentMWh),
           type: 'bar' as const,
-          name: 'Production',
+          name: 'Total output',
           marker: { color: '#10b981' },
         },
         {
           x: monthNames,
           y: monthlyData.map(m => m.curtailmentMWh),
           type: 'bar' as const,
-          name: 'Curtailment',
-          marker: { color: '#fbbf24' },
+          name: 'Curtailed',
+          marker: { color: '#f59e0b' },
         },
       ],
       layout: {
@@ -456,6 +456,7 @@ function App() {
         const weekData = filterDataByDate(loadData, '2023-05-15', '2023-05-21');
         const timestamps = weekData.map(d => d.timestamp);
         const netLoad = weekData.map(d => d.net_load_mw);
+        const reverseSeries = buildReverseFlowSeries(timestamps, netLoad);
 
         // Calculate daily minimums and create horizontal lines + arrows
         const dailyLines: any[] = [];
@@ -526,6 +527,16 @@ function App() {
 
         return {
           data: [
+            {
+              x: reverseSeries.x,
+              y: reverseSeries.y,
+              type: 'scatter' as const,
+              mode: 'none' as const,
+              fill: 'tozeroy',
+              connectgaps: true,
+              fillcolor: 'rgba(255, 182, 193, 0.4)',
+              name: 'Reverse power flow',
+            },
             {
               x: timestamps,
               y: netLoad,
@@ -640,7 +651,47 @@ function App() {
       }
 
       case 4: {
-        // Section 5: 10-day view with constrained solar
+        // Section 5: Full year real-time hosting capacity
+        const timestamps = loadData.map(d => d.timestamp);
+        const minLoad = Math.min(...(loadData.map(d => d.net_load_mw)));
+        const staticLimit = minLoad - THERMAL_LIMIT;
+        const realTimeCapacity = loadData.map(d => d.net_load_mw - THERMAL_LIMIT);
+
+        return {
+          data: [
+            {
+              x: timestamps,
+              y: realTimeCapacity,
+              type: 'scatter' as const,
+              mode: 'lines' as const,
+              name: 'Real-time hosting capacity',
+              line: { color: '#3b82f6', width: 1 },
+            },
+            {
+              x: [timestamps[0], timestamps[timestamps.length - 1]],
+              y: [staticLimit, staticLimit],
+              type: 'scatter' as const,
+              mode: 'lines' as const,
+              name: 'Static hosting capacity limit',
+              line: { color: 'blue', width: 7, dash: 'dot' },
+            },
+          ],
+          layout: {
+            title: 'Real-Time Hosting Capacity Varies Throughout the Year',
+            xaxis: {
+              title: '',
+              range: [timestamps[0].getTime(), timestamps[timestamps.length - 1].getTime()],
+            },
+            yaxis: { title: { text: 'MW' }, automargin: true, range: [-2, Math.max(...realTimeCapacity) * 1.1] },
+            showlegend: true,
+            legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
+            hovermode: 'x unified' as const,
+          },
+        };
+      }
+
+      case 5: {
+        // Section 6: 10-day view with constrained solar
         const tenDayData = filterDataByDate(loadData, '2023-05-16', '2023-05-20');
         const timestamps = tenDayData.map(d => d.timestamp);
         const realTimeCapacity = tenDayData.map(d => d.net_load_mw - THERMAL_LIMIT);
@@ -673,6 +724,14 @@ function App() {
               name: 'Solar output (static limit)',
               line: { color: '#f59e0b', width: 3 },
             },
+            {
+              x: [timestamps[0], timestamps[timestamps.length - 1]],
+              y: [minCapacity, minCapacity],
+              type: 'scatter' as const,
+              mode: 'lines' as const,
+              name: 'Static hosting capacity limit',
+              line: { color: '#3b82f6', width: 7, dash: 'dot' },
+            },
           ],
           layout: {
             title: 'Static Limit Wastes Available Capacity',
@@ -683,12 +742,58 @@ function App() {
             yaxis: { title: { text: 'MW' }, automargin: true, range: [0, Math.max(...realTimeCapacity) * 1.1] },
             legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'center', x: 0.5 },
             hovermode: 'x unified' as const,
+            annotations: [
+              {
+                x: timestamps[timestamps.length - 24 * 3].getTime(),
+                y: 0,
+                text: '   ',
+                showarrow: true,
+                arrowhead: 2,
+                arrowsize: 1,
+                arrowwidth: 5,
+                arrowcolor: '#f59e0b',
+                xref: 'x',
+                yref: 'y',
+                axref: 'x',
+                ayref: 'y',
+                ax: timestamps[timestamps.length - 24 * 3].getTime(),
+                ay: minCapacity,
+              },
+              {
+                x: timestamps[timestamps.length - 24 * 3].getTime(),
+                y: minCapacity,
+                text: '   ',
+                showarrow: true,
+                arrowhead: 2,
+                arrowsize: 1,
+                arrowwidth: 5,
+                arrowcolor: '#f59e0b',
+                xref: 'x',
+                yref: 'y',
+                axref: 'x',
+                ayref: 'y',
+                ax: timestamps[timestamps.length - 24 * 3].getTime(),
+                ay: 0,
+              },
+              {
+                x: timestamps[timestamps.length - 24 * 3].getTime(),
+                y: minCapacity * 0.5,
+                text: '<b>Solar plant sized for static capacity</b>',
+                showarrow: false,
+                xref: 'x',
+                yref: 'y',
+                xanchor: 'left',
+                xshift: 10,
+                font: { color: '#f59e0b', size: 16 },
+                bgcolor: 'rgba(255, 255, 255, 0.9)'
+              },
+            ],
           },
         };
       }
 
-      case 5: {
-        // Section 6: 10-day view with flexible interconnection
+      case 6: {
+        // Section 7: 10-day view with flexible interconnection
         const tenDayData = filterDataByDate(loadData, '2023-05-16', '2023-05-20');
         const timestamps = tenDayData.map(d => d.timestamp);
         const realTimeCapacity = tenDayData.map(d => d.net_load_mw - THERMAL_LIMIT);
@@ -754,8 +859,8 @@ function App() {
         };
       }
 
-      case 6: {
-        // Section 7: Annual energy comparison bar chart
+      case 7: {
+        // Section 8: Annual energy comparison bar chart
         const realTimeCapacity = loadData.map(d => d.net_load_mw - THERMAL_LIMIT);
         const minCapacity = Math.min(...realTimeCapacity);
 
@@ -802,17 +907,17 @@ function App() {
           data: [
             {
               x: labels,
-              y: annualMWh,
+              y: totalGWh,
               type: 'bar' as const,
-              name: 'Annual generation',
+              name: 'Total output',
               marker: { color: '#10b981' },
             },
             {
               x: labels,
               y: annualCurtailedMWh,
               type: 'bar' as const,
-              name: 'Annual curtailed energy',
-              marker: { color: '#93c5fd' },
+              name: 'Curtailed',
+              marker: { color: '#f59e0b' },
             },
           ],
           layout: {
@@ -866,42 +971,6 @@ function App() {
     <div className="w-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Two-column section */}
       <div className="flex w-screen">
-        {/* Left side: Fixed Plotly chart */}
-        <div className="w-1/2 h-screen flex items-center justify-center p-8 bg-white border-r border-gray-200 sticky top-0">
-          <div className="w-full max-w-3xl aspect-[4/3]">
-            <Plot
-              data={plotConfig.data}
-              layout={{
-                ...plotConfig.layout,
-                autosize: true,
-                margin: { l: 80, r: 40, t: 60, b: 60 },
-                plot_bgcolor: '#ffffff',
-                paper_bgcolor: '#ffffff',
-                font: {
-                  family: 'system-ui, -apple-system, sans-serif',
-                  color: '#374151',
-                  size: 24,
-                },
-                transition: {
-                  duration: 600,
-                  easing: 'cubic-in-out',
-                },
-              }}
-              config={{
-                displayModeBar: false,
-                responsive: true,
-              }}
-              style={{ width: '100%', height: '100%' }}
-              useResizeHandler={true}
-              transition={{
-                duration: 600,
-                easing: 'cubic-in-out',
-              }}
-              frames={[]}
-            />
-          </div>
-        </div>
-
         {/* Right side: Scrollable text */}
         <div className="w-1/2 bg-gradient-to-b from-white to-gray-50">
           <div className="max-w-2xl mx-auto px-12 py-16">
@@ -918,12 +987,15 @@ function App() {
                 Getting more out of our grid with flexible interconnection
               </h2>
               <p className="text-3xl text-gray-700 leading-relaxed mb-4">
-                Traditionally, the grid is built for the highest load hour of each year.
+                Traditionally, the grid is built for the most stressed hour of each year.
                 As we add solar, we start seeing <span className="text-pink-500 font-semibold">reverse power flow</span> when
                 solar produces more electricity than can be consumed locally.
               </p>
               <p className="text-lg text-gray-500 italic mb-4">
-                *Note: net load data are for an actual Eversource substation in western Massachusetts.
+                2023 load data are from an Eversource substation in western Massachusetts. Solar output is simulated using real weather data.
+              </p>
+              <p className="text-lg text-gray-500 italic mb-4">
+                Sources: Eversource Energy load data filed in D.P.U. 25-30/-81/-82/-83. Solar irradiance and weather from NREL's NSRDB.
               </p>
 
               <p className="text-lg text-gray-500 italic">
@@ -1003,8 +1075,9 @@ function App() {
               className="min-h-screen flex flex-col justify-center mb-32"
             >
               <p className="text-3xl text-gray-700 leading-relaxed">
-                Even though most days don't come close to the limit, the
-                worst-case scenario limits the amount of solar that can be installed.
+                The difference between the net load and the planning limit determines the
+                <span className="text-blue-600 font-semibold"> real-time hosting capacity</span> in any given hour, which is often much higher
+                than the static hosting capacity limit.
               </p>
             </div>
 
@@ -1015,10 +1088,11 @@ function App() {
               className="min-h-screen flex flex-col justify-center mb-32"
             >
               <p className="text-3xl text-gray-700 leading-relaxed">
-                <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
-                rather than the static limit. When the grid is congested, solar output
-                &nbsp;<span className="bg-orange-100 text-orange-800 px-1">curtails</span>&nbsp;
-                (i.e. turns down).
+                If you limit the size of new solar installations to the static hosting capacity,
+                a lot of available capacity goes unused.
+                <br /><br />
+                Even though most days don't come close to the limit, the
+                worst-case scenario limits the amount of solar that can be installed.
               </p>
             </div>
 
@@ -1026,6 +1100,20 @@ function App() {
             <div
               ref={(el) => { sectionRefs.current[6] = el; }}
               data-section="6"
+              className="min-h-screen flex flex-col justify-center mb-32"
+            >
+              <p className="text-3xl text-gray-700 leading-relaxed">
+                <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
+                rather than the static limit. When the grid is congested, solar output
+                &nbsp;<span className="bg-orange-100 text-orange-800 px-1">curtails</span>&nbsp;
+                (i.e. turns down).
+              </p>
+            </div>
+
+            {/* Section 8 */}
+            <div
+              ref={(el) => { sectionRefs.current[7] = el; }}
+              data-section="7"
               className="min-h-screen flex flex-col justify-center mb-32 relative"
             >
               <p className="text-3xl text-gray-700 leading-relaxed">
@@ -1049,6 +1137,42 @@ function App() {
                 </svg>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Left side: Fixed Plotly chart */}
+        <div className="w-1/2 h-screen flex items-center justify-center p-8 bg-white border-r border-gray-200 sticky top-0">
+          <div className="w-full max-w-3xl aspect-[4/3]">
+            <Plot
+              data={plotConfig.data}
+              layout={{
+                ...plotConfig.layout,
+                autosize: true,
+                margin: { l: 80, r: 40, t: 60, b: 160 },
+                plot_bgcolor: '#ffffff',
+                paper_bgcolor: '#ffffff',
+                font: {
+                  family: 'system-ui, -apple-system, sans-serif',
+                  color: '#374151',
+                  size: 24,
+                },
+                transition: {
+                  duration: 600,
+                  easing: 'cubic-in-out',
+                },
+              }}
+              config={{
+                displayModeBar: false,
+                responsive: true,
+              }}
+              style={{ width: '100%', height: '100%' }}
+              useResizeHandler={true}
+              transition={{
+                duration: 600,
+                easing: 'cubic-in-out',
+              }}
+              frames={[]}
+            />
           </div>
         </div>
       </div>
