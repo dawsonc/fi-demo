@@ -927,7 +927,7 @@ function App() {
               </p>
 
               <p className="text-lg text-gray-500 italic">
-                Analysis by{' '}
+                Created by{' '}
                 <a
                   href="https://dawzylla.com/"
                   target="_blank"
