@@ -26,6 +26,7 @@ function App() {
   const [solarSizeMW, setSolarSizeMW] = useState(15);
   const [planningLimitMW, setPlanningLimitMW] = useState(10);
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const textContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Load CSV data
   useEffect(() => {
@@ -75,6 +76,9 @@ function App() {
 
   // Intersection Observer for section detection
   useEffect(() => {
+    // On mobile, use text container as root; on desktop, use viewport
+    const root = window.innerWidth < 1024 ? textContainerRef.current : null;
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -85,7 +89,7 @@ function App() {
         });
       },
       {
-        root: null, // Use viewport as root
+        root,
         threshold: 0.5,
       }
     );
@@ -730,7 +734,7 @@ function App() {
               type: 'scatter' as const,
               mode: 'lines' as const,
               name: 'Static hosting capacity limit',
-              line: { color: '#3b82f6', width: 7, dash: 'dot' },
+              line: { color: 'blue', width: 7, dash: 'dot' },
             },
           ],
           layout: {
@@ -952,6 +956,13 @@ function App() {
 
   const plotConfig = generatePlot(activeSection);
 
+  // Responsive chart settings
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
+  const chartMargin = isMobile
+    ? { l: 50, r: 20, t: 40, b: 80 }
+    : { l: 80, r: 40, t: 60, b: 160 };
+  const chartFontSize = isMobile ? 12 : 24;
+
   // Memoized interactive plots
   const multiDayPlotConfig = useMemo(() => {
     if (isLoading || loadData.length === 0 || solarData.length === 0) {
@@ -970,10 +981,49 @@ function App() {
   return (
     <div className="w-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Two-column section */}
-      <div className="flex w-screen">
-        {/* Right side: Scrollable text */}
-        <div className="w-1/2 bg-gradient-to-b from-white to-gray-50">
-          <div className="max-w-2xl mx-auto px-12 py-16">
+      <div className="flex flex-col lg:flex-row w-screen h-screen lg:h-auto">
+        {/* Left side: Fixed Plotly chart (top on mobile, left on desktop) */}
+        <div className="w-full lg:w-1/2 h-[35vh] lg:h-screen flex items-center justify-center p-2 lg:p-8 bg-white border-b lg:border-b-0 lg:border-r border-gray-200 lg:sticky lg:top-0 order-1 lg:order-2">
+          <div className="w-full h-full lg:h-auto max-w-3xl lg:aspect-[4/3]">
+            <Plot
+              data={plotConfig.data}
+              layout={{
+                ...plotConfig.layout,
+                autosize: true,
+                margin: chartMargin,
+                plot_bgcolor: '#ffffff',
+                paper_bgcolor: '#ffffff',
+                font: {
+                  family: 'system-ui, -apple-system, sans-serif',
+                  color: '#374151',
+                  size: chartFontSize,
+                },
+                transition: {
+                  duration: 600,
+                  easing: 'cubic-in-out',
+                },
+              }}
+              config={{
+                displayModeBar: false,
+                responsive: true,
+              }}
+              style={{ width: '100%', height: '100%' }}
+              useResizeHandler={true}
+              transition={{
+                duration: 600,
+                easing: 'cubic-in-out',
+              }}
+              frames={[]}
+            />
+          </div>
+        </div>
+
+        {/* Right side: Scrollable text (bottom on mobile, right on desktop) */}
+        <div
+          ref={textContainerRef}
+          className="w-full lg:w-1/2 h-[65vh] lg:h-auto bg-gradient-to-b from-white to-gray-50 order-2 lg:order-1 overflow-y-auto lg:overflow-visible"
+        >
+          <div className="max-w-2xl mx-auto px-6 md:px-12 py-8 md:py-16">
             {/* Section 1 */}
             <div
               ref={(el) => { sectionRefs.current[0] = el; }}
@@ -983,10 +1033,10 @@ function App() {
               {/* <h1 className="text-5xl font-bold mb-6 text-gray-900">
                   Flexible Interconnection
                 </h1> */}
-              <h2 className="text-3xl font-semibold mb-8 text-gray-900">
+              <h2 className="text-2xl md:text-3xl font-semibold mb-6 md:mb-8 text-gray-900">
                 Getting more out of our grid with flexible interconnection
               </h2>
-              <p className="text-3xl text-gray-700 leading-relaxed mb-4">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed mb-4">
                 Traditionally, the grid is built for the most stressed hour of each year.
                 As we add solar, we start seeing <span className="text-pink-500 font-semibold">reverse power flow</span> when
                 solar produces more electricity than can be consumed locally.
@@ -1033,7 +1083,7 @@ function App() {
               data-section="1"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed mb-4">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed mb-4">
                 As <span className="text-pink-500 font-semibold">reverse power flow</span> approaches
                 the <span className="text-red-600 font-semibold">thermal limit</span> of the local grid,
                 this limits the <span className="text-blue-600 font-semibold">hosting capacity</span> of
@@ -1050,7 +1100,7 @@ function App() {
               data-section="2"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 However, <span className="text-blue-600 font-semibold">hosting capacity</span> is not static;
                 it varies from day to day based on weather, load, and other grid conditions.
               </p>
@@ -1062,7 +1112,7 @@ function App() {
               data-section="3"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 Traditional interconnection sets limits based on the worst hour of the year,
                 requiring expensive grid upgrades to accomodate more solar.
               </p>
@@ -1074,7 +1124,7 @@ function App() {
               data-section="4"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 The difference between the net load and the planning limit determines the
                 <span className="text-blue-600 font-semibold"> real-time hosting capacity</span> in any given hour, which is often much higher
                 than the static hosting capacity limit.
@@ -1087,7 +1137,7 @@ function App() {
               data-section="5"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 If you limit the size of new solar installations to the static hosting capacity,
                 a lot of available capacity goes unused.
                 <br /><br />
@@ -1102,7 +1152,7 @@ function App() {
               data-section="6"
               className="min-h-screen flex flex-col justify-center mb-32"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 <span className="font-semibold">Flexible interconnection</span> uses the precise amount of hosting capacity available in real time,
                 rather than the static limit. When the grid is congested, solar output
                 &nbsp;<span className="bg-orange-100 text-orange-800 px-1">curtails</span>&nbsp;
@@ -1116,7 +1166,7 @@ function App() {
               data-section="7"
               className="min-h-screen flex flex-col justify-center mb-32 relative"
             >
-              <p className="text-3xl text-gray-700 leading-relaxed">
+              <p className="text-xl md:text-3xl text-gray-700 leading-relaxed">
                 Over the course of the year, flexible interconnection allows solar to generate
                 much more electricity without overloading the grid, and only a small fraction ends up curtailed.
               </p>
@@ -1139,53 +1189,17 @@ function App() {
             </div>
           </div>
         </div>
-
-        {/* Left side: Fixed Plotly chart */}
-        <div className="w-1/2 h-screen flex items-center justify-center p-8 bg-white border-r border-gray-200 sticky top-0">
-          <div className="w-full max-w-3xl aspect-[4/3]">
-            <Plot
-              data={plotConfig.data}
-              layout={{
-                ...plotConfig.layout,
-                autosize: true,
-                margin: { l: 80, r: 40, t: 60, b: 160 },
-                plot_bgcolor: '#ffffff',
-                paper_bgcolor: '#ffffff',
-                font: {
-                  family: 'system-ui, -apple-system, sans-serif',
-                  color: '#374151',
-                  size: 24,
-                },
-                transition: {
-                  duration: 600,
-                  easing: 'cubic-in-out',
-                },
-              }}
-              config={{
-                displayModeBar: false,
-                responsive: true,
-              }}
-              style={{ width: '100%', height: '100%' }}
-              useResizeHandler={true}
-              transition={{
-                duration: 600,
-                easing: 'cubic-in-out',
-              }}
-              frames={[]}
-            />
-          </div>
-        </div>
       </div>
 
       {/* Full-width interactive section */}
-      <div className="w-full h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="w-full min-h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100">
         {/* Controls area */}
-        <div className="p-8 bg-white border-b border-gray-200">
-          <h2 className="text-4xl font-bold mb-6 text-gray-900">
+        <div className="p-4 md:p-8 bg-white border-b border-gray-200">
+          <h2 className="text-2xl md:text-4xl font-bold mb-4 md:mb-6 text-gray-900">
             Flexible interconnection in action
           </h2>
 
-          <div className="max-w-4xl mx-auto grid grid-cols-2 gap-8">
+          <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
             {/* Solar Size Slider */}
             <div>
               <div className="flex justify-between mb-2">
@@ -1223,9 +1237,9 @@ function App() {
         </div>
 
         {/* Plots area */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
           {/* Multi-day plot */}
-          <div className="w-1/2 p-6 flex items-center justify-center">
+          <div className="w-full lg:w-1/2 p-4 md:p-6 flex items-center justify-center min-h-[400px] lg:min-h-0">
             <div className="w-full h-full">
               <Plot
                 data={multiDayPlotConfig.data}
@@ -1252,7 +1266,7 @@ function App() {
           </div>
 
           {/* Monthly bar chart */}
-          <div className="w-1/2 p-6 flex items-center justify-center border-l border-gray-200">
+          <div className="w-full lg:w-1/2 p-4 md:p-6 flex items-center justify-center border-t lg:border-t-0 lg:border-l border-gray-200 min-h-[400px] lg:min-h-0">
             <div className="w-full h-full">
               <Plot
                 data={monthlyPlotConfig.data}
